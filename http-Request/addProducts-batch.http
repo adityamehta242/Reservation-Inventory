@@ -1,0 +1,168 @@
+### GET request to example server
+POST http://localhost:8080/api/product/batch
+Content-Type: application/json
+
+[
+  {
+    "sku": "SKU-001",
+    "name": "Laptop Pro 15",
+    "total": 50,
+    "available": 40,
+    "reserved": 10,
+    "version": 0
+  },
+  {
+    "sku": "SKU-002",
+    "name": "Wireless Mouse",
+    "total": 200,
+    "available": 180,
+    "reserved": 20,
+    "version": 0
+  },
+  {
+    "sku": "SKU-003",
+    "name": "Mechanical Keyboard",
+    "total": 120,
+    "available": 100,
+    "reserved": 20,
+    "version": 0
+  },
+  {
+    "sku": "SKU-004",
+    "name": "Noise Cancelling Headphones",
+    "total": 75,
+    "available": 70,
+    "reserved": 5,
+    "version": 0
+  },
+  {
+    "sku": "SKU-005",
+    "name": "4K Monitor",
+    "total": 30,
+    "available": 25,
+    "reserved": 5,
+    "version": 0
+  },
+  {
+    "sku": "SKU-006",
+    "name": "USB-C Hub",
+    "total": 90,
+    "available": 85,
+    "reserved": 5,
+    "version": 0
+  },
+  {
+    "sku": "SKU-007",
+    "name": "External SSD 1TB",
+    "total": 60,
+    "available": 55,
+    "reserved": 5,
+    "version": 0
+  },
+  {
+    "sku": "SKU-008",
+    "name": "Smartphone Stand",
+    "total": 150,
+    "available": 145,
+    "reserved": 5,
+    "version": 0
+  },
+  {
+    "sku": "SKU-009",
+    "name": "Portable Charger 20000mAh",
+    "total": 110,
+    "available": 100,
+    "reserved": 10,
+    "version": 0
+  },
+  {
+    "sku": "SKU-010",
+    "name": "Bluetooth Speaker",
+    "total": 80,
+    "available": 75,
+    "reserved": 5,
+    "version": 0
+  },
+  {
+    "sku": "SKU-011",
+    "name": "Gaming Chair",
+    "total": 40,
+    "available": 38,
+    "reserved": 2,
+    "version": 0
+  },
+  {
+    "sku": "SKU-012",
+    "name": "Desk Lamp LED",
+    "total": 70,
+    "available": 68,
+    "reserved": 2,
+    "version": 0
+  },
+  {
+    "sku": "SKU-013",
+    "name": "Graphic Tablet",
+    "total": 45,
+    "available": 40,
+    "reserved": 5,
+    "version": 0
+  },
+  {
+    "sku": "SKU-014",
+    "name": "Smartwatch",
+    "total": 100,
+    "available": 90,
+    "reserved": 10,
+    "version": 0
+  },
+  {
+    "sku": "SKU-015",
+    "name": "Drone Camera",
+    "total": 25,
+    "available": 20,
+    "reserved": 5,
+    "version": 0
+  },
+  {
+    "sku": "SKU-016",
+    "name": "VR Headset",
+    "total": 35,
+    "available": 33,
+    "reserved": 2,
+    "version": 0
+  },
+  {
+    "sku": "SKU-017",
+    "name": "Wireless Earbuds",
+    "total": 90,
+    "available": 85,
+    "reserved": 5,
+    "version": 0
+  },
+  {
+    "sku": "SKU-018",
+    "name": "Action Camera",
+    "total": 55,
+    "available": 50,
+    "reserved": 5,
+    "version": 0
+  },
+  {
+    "sku": "SKU-019",
+    "name": "Smart Home Hub",
+    "total": 65,
+    "available": 60,
+    "reserved": 5,
+    "version": 0
+  },
+  {
+    "sku": "SKU-020",
+    "name": "3D Printer",
+    "total": 15,
+    "available": 12,
+    "reserved": 3,
+    "version": 0
+  }
+]
+
+###
