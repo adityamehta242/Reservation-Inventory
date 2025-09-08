@@ -15,57 +15,56 @@
  */
 package com.reservationinventory.config;
 
-import org.springframework.cache.CacheManager;
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.redis.cache.RedisCacheConfiguration;
-import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.serializer.RedisSerializationContext;
-import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
-import java.time.Duration;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
 
 @Configuration
+@EnableCaching
 public class RedisConfig {
-
+    
     @Bean
-    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory factory) {
-        RedisSerializer<String> keySerializer = new StringRedisSerializer();
-        // Factory-provided JSON serializer (Jackson-backed)
-        RedisSerializer<Object> valueSerializer = RedisSerializer.json();
-
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory) {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
-        template.setConnectionFactory(factory);
-        template.setKeySerializer(keySerializer);
-        template.setValueSerializer(valueSerializer);
-        template.setHashKeySerializer(keySerializer);
-        template.setHashValueSerializer(valueSerializer);
+        template.setConnectionFactory(connectionFactory);
+        
+        // Use Jackson2JsonRedisSerializer for JSON serialization
+        Jackson2JsonRedisSerializer<Object> jackson2JsonRedisSerializer = 
+            new Jackson2JsonRedisSerializer<>(Object.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.ANY);
+        objectMapper.enableDefaultTyping(ObjectMapper.DefaultTyping.NON_FINAL);
+        objectMapper.registerModule(new JavaTimeModule());
+        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        jackson2JsonRedisSerializer.setObjectMapper(objectMapper);
+        
+        // Set serializers
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(jackson2JsonRedisSerializer);
+        template.setHashKeySerializer(new StringRedisSerializer());
+        template.setHashValueSerializer(jackson2JsonRedisSerializer);
+        
         template.afterPropertiesSet();
         return template;
     }
-
+    
     @Bean
-    public CacheManager cacheManager(RedisConnectionFactory factory) {
-        RedisSerializationContext.SerializationPair<String> keyPair =
-                RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer());
-        RedisSerializationContext.SerializationPair<Object> valuePair =
-                RedisSerializationContext.SerializationPair.fromSerializer(RedisSerializer.json());
-
-        RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
-                .entryTtl(Duration.ofMinutes(30))
-                .serializeKeysWith(keyPair)
-                .serializeValuesWith(valuePair);
-
-        return RedisCacheManager.builder(factory).cacheDefaults(config).build();
-    }
-
-    @Bean
-    public StringRedisTemplate stringRedisTemplate(RedisConnectionFactory factory) {
-        return new StringRedisTemplate(factory);
+    public ObjectMapper objectMapper() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new JavaTimeModule());
+        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        return objectMapper;
     }
 }
-

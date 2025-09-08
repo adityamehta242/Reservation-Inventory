@@ -15,8 +15,6 @@
  */
 package com.reservationinventory.services;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.reservationinventory.dto.ReservationItemRequestDTO;
 import com.reservationinventory.dto.ReservationResponseDTO;
 import com.reservationinventory.entity.Customer;
@@ -27,16 +25,17 @@ import com.reservationinventory.entity.ReservationStatus;
 import com.reservationinventory.exceptions.ResourceNotFoundException;
 import com.reservationinventory.mapper.ReservationMapper;
 import com.reservationinventory.repository.CustomerRepository;
-import com.reservationinventory.repository.IdempotencyKeyRepository;
 import com.reservationinventory.repository.ReservationRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.hibernate.annotations.DialectOverride.Check;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,129 +43,197 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * @author adityamehta
  */
+
 @Service
+@Transactional
+@Slf4j
 public class ReservationService {
-
+    
     private final CustomerRepository customerRepository;
-    private final ProductService productService;
     private final ReservationRepository reservationRepository;
+    private final ProductService productService;
     private final ReservationMapper reservationMapper;
-    private final IdempotencyKeyRepository idempotencyKeyRepository;
-    private final ObjectMapper objectMapper;
     private final IdempotencyRedisService idempotencyRedisService;
-
-    private static final MessageDigest MD5_DIGEST;
-
-    static {
-        try {
-            MD5_DIGEST = MessageDigest.getInstance("MD5");
-        } catch (Exception e) {
-            throw new RuntimeException("MD5 algorithm not available", e);
-        }
-    }
-
-    public ReservationService(CustomerRepository customerRepository, ProductService productService, ReservationRepository reservationRepository, ReservationMapper reservationMapper, IdempotencyKeyRepository idempotencyKeyRepository, ObjectMapper objectMapper , IdempotencyRedisService idempotencyRedisService) {
+    
+    public ReservationService(
+            CustomerRepository customerRepository,
+            ReservationRepository reservationRepository,
+            ProductService productService,
+            ReservationMapper reservationMapper,
+            IdempotencyRedisService idempotencyRedisService) {
         this.customerRepository = customerRepository;
-        this.productService = productService;
         this.reservationRepository = reservationRepository;
+        this.productService = productService;
         this.reservationMapper = reservationMapper;
-        this.idempotencyKeyRepository = idempotencyKeyRepository;
-        this.objectMapper = objectMapper;
         this.idempotencyRedisService = idempotencyRedisService;
     }
-
-    @Transactional
+    
     public ReservationResponseDTO createReservation(UUID customerId, List<ReservationItemRequestDTO> reservationItemRequest) {
-        
         String idempotencyKey = generateIdempotencyKey(customerId, reservationItemRequest);
         
-        // Check Redis for existing response
+        log.info("Creating reservation with idempotency key: {}", idempotencyKey);
+        
+        // First, check if we already have a cached response
         Optional<ReservationResponseDTO> existingResponse = idempotencyRedisService.getResponse(idempotencyKey);
         if (existingResponse.isPresent()) {
+            log.info("Returning cached response for idempotency key: {}", idempotencyKey);
             return existingResponse.get();
         }
-
-
+        
+        // Try to acquire lock
+        if (!idempotencyRedisService.tryLock(idempotencyKey)) {
+            log.info("Lock acquisition failed, waiting for result for idempotency key: {}", idempotencyKey);
+            
+            // Wait for the other thread to complete
+            Optional<ReservationResponseDTO> waitResult = idempotencyRedisService.waitForResult(idempotencyKey);
+            
+            if (waitResult.isPresent()) {
+                return waitResult.get();
+            } else {
+                // If waiting failed, try to process again (maybe the other thread failed)
+                log.warn("Wait for result failed, attempting to process again for idempotency key: {}", idempotencyKey);
+                return handleFailedWait(customerId, reservationItemRequest, idempotencyKey);
+            }
+        }
+        
+        try {
+            // Mark as processing
+            idempotencyRedisService.markAsProcessing(idempotencyKey);
+            
+            // Double-check after acquiring lock (another thread might have completed while we were waiting)
+            Optional<ReservationResponseDTO> doubleCheckResponse = idempotencyRedisService.getResponse(idempotencyKey);
+            if (doubleCheckResponse.isPresent()) {
+                log.info("Found response after acquiring lock for idempotency key: {}", idempotencyKey);
+                return doubleCheckResponse.get();
+            }
+            
+            // Process the reservation
+            ReservationResponseDTO response = processReservation(customerId, reservationItemRequest);
+            
+            // Store response and release lock atomically
+            idempotencyRedisService.storeResponseAndReleaseLock(idempotencyKey, response);
+            
+            log.info("Successfully created reservation with idempotency key: {}", idempotencyKey);
+            return response;
+            
+        } catch (Exception e) {
+            log.error("Error processing reservation with idempotency key: {}", idempotencyKey, e);
+            
+            // Ensure cleanup on failure
+            idempotencyRedisService.releaseLock(idempotencyKey);
+            idempotencyRedisService.removeProcessingMarker(idempotencyKey);
+            
+            throw e;
+        }
+    }
+    
+    private ReservationResponseDTO handleFailedWait(UUID customerId, 
+            List<ReservationItemRequestDTO> reservationItemRequest, String idempotencyKey) {
+        
+        // Try to acquire lock again
+        if (idempotencyRedisService.tryLock(idempotencyKey)) {
+            try {
+                idempotencyRedisService.markAsProcessing(idempotencyKey);
+                
+                // Check one more time
+                Optional<ReservationResponseDTO> response = idempotencyRedisService.getResponse(idempotencyKey);
+                if (response.isPresent()) {
+                    return response.get();
+                }
+                
+                // Process the reservation
+                ReservationResponseDTO result = processReservation(customerId, reservationItemRequest);
+                idempotencyRedisService.storeResponseAndReleaseLock(idempotencyKey, result);
+                return result;
+                
+            } catch (Exception e) {
+                idempotencyRedisService.releaseLock(idempotencyKey);
+                idempotencyRedisService.removeProcessingMarker(idempotencyKey);
+                throw e;
+            }
+        } else {
+            // If we still can't acquire lock, throw an exception
+            throw new RuntimeException("Unable to process reservation due to concurrent processing issues");
+        }
+    }
+    
+    private ReservationResponseDTO processReservation(UUID customerId, 
+            List<ReservationItemRequestDTO> reservationItemRequest) {
+        
+        log.debug("Processing reservation for customer: {}", customerId);
+        
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found."));
         
-        Reservation reservation =new Reservation().builder()
+        Reservation reservation = Reservation.builder()
                 .customer(customer)
                 .status(ReservationStatus.PENDING)
-                .expiresAt(OffsetDateTime.now().plusMinutes(15)).build();
+                .expiresAt(OffsetDateTime.now().plusMinutes(15))
+                .build();
         
         reservation = reservationRepository.save(reservation);
         
         List<ReservationItem> reservationItems = new ArrayList<>();
         
-        for(ReservationItemRequestDTO item : reservationItemRequest)
-        {
-            Product product = productService.reserveInventory(item.getSku(), item.getQuantity());
-            
-            ReservationItem rs = new ReservationItem().builder()
-                    .product(product)
-                    .quantity(item.getQuantity())
-                    .sku(item.getSku())
-                    .reservation(reservation)
-                    .build();
-            
-            reservationItems.add(rs);
+        for (ReservationItemRequestDTO item : reservationItemRequest) {
+            try {
+                Product product = productService.reserveInventory(item.getSku(), item.getQuantity());
+                
+                ReservationItem reservationItem = ReservationItem.builder()
+                        .product(product)
+                        .quantity(item.getQuantity())
+                        .sku(item.getSku())
+                        .reservation(reservation)
+                        .build();
+                
+                reservationItems.add(reservationItem);
+                
+            } catch (Exception e) {
+                log.error("Error reserving inventory for SKU: {} with quantity: {}", 
+                         item.getSku(), item.getQuantity(), e);
+                throw new RuntimeException("Failed to reserve inventory for SKU: " + item.getSku(), e);
+            }
         }
         
         reservation.setReservationItems(reservationItems);
-        Reservation saveReservation = reservationRepository.save(reservation);
+        Reservation savedReservation = reservationRepository.save(reservation);
         
-        ReservationResponseDTO response = reservationMapper.toResponseDTO(reservation); 
-        idempotencyRedisService.storeResponse(idempotencyKey, response);
-       
-        return response;
-    }
-
-    ReservationResponseDTO confirmReservation(UUID reservationId) {
-        return null;
-    }
-
-    ReservationResponseDTO cancelReservation(UUID reservationId) {
-        return null;
-    }
-
-    ReservationResponseDTO getReservationById(UUID reservationId) {
-        return null;
-    }
-
-    List<ReservationResponseDTO> getReservationsByCustomerId(UUID customerId) {
-        return null;
-    }
-
-    ReservationResponseDTO extendReservation(UUID reservationId, int additionalHours) {
-        return null;
+        return reservationMapper.toResponseDTO(savedReservation);
     }
     
-    /**
-     * Generate idempotency key from customer ID and request data
-     */
-    private String generateIdempotencyKey(UUID customerId, List<ReservationItemRequestDTO> request) {
+    private String generateIdempotencyKey(UUID customerId, List<ReservationItemRequestDTO> items) {
         try {
-            String requestJson = objectMapper.writeValueAsString(request);
-            String combined = customerId + ":" + requestJson;
+            // Create a consistent hash based on customer ID and items
+            StringBuilder sb = new StringBuilder();
+            sb.append(customerId.toString());
             
-            synchronized (MD5_DIGEST) {
-                byte[] hashBytes = MD5_DIGEST.digest(combined.getBytes(StandardCharsets.UTF_8));
-                return bytesToHex(hashBytes);
+            // Sort items to ensure consistent ordering
+            items.stream()
+                .sorted(Comparator.comparing(ReservationItemRequestDTO::getSku))
+                .forEach(item -> {
+                    sb.append(":").append(item.getSku()).append(":").append(item.getQuantity());
+                });
+            
+            // Use SHA-256 to create a consistent hash
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(sb.toString().getBytes(StandardCharsets.UTF_8));
+            
+            // Convert to hex string
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) {
+                    hexString.append('0');
+                }
+                hexString.append(hex);
             }
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize request for idempotency key", e);
+            
+            return hexString.toString();
+            
+        } catch (NoSuchAlgorithmException e) {
+            // Fallback to simple concatenation if SHA-256 is not available
+            log.warn("SHA-256 not available, using simple concatenation for idempotency key");
+            return customerId.toString() + ":" + items.hashCode();
         }
-    }
-    
-    /**
-     * Convert byte array to hex string
-     */
-    private String bytesToHex(byte[] bytes) {
-        StringBuilder result = new StringBuilder();
-        for (byte b : bytes) {
-            result.append(String.format("%02x", b));
-        }
-        return result.toString();
     }
 }

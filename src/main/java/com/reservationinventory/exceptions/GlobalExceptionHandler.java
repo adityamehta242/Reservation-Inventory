@@ -45,4 +45,10 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(HttpStatus.BAD_REQUEST.value(), ex.getMessage());
         return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
     }
+
+    @ExceptionHandler(IdempotencyException.class)
+    public ResponseEntity<ErrorResponse> handleIdempotencyException(IdempotencyException ex) {
+        ErrorResponse error = new ErrorResponse(HttpStatus.BAD_REQUEST.value(), ex.getMessage());
+        return new ResponseEntity<ErrorResponse>(error, HttpStatus.BAD_REQUEST);
+    }
 }
