@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.reservationinventory.config;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
@@ -23,6 +24,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import com.fasterxml.jackson.databind.jsontype.PolymorphicTypeValidator;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -30,6 +32,12 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+
+import java.time.Duration;
 
 @Configuration
 @EnableCaching
@@ -53,9 +61,11 @@ public class RedisConfig {
         PolymorphicTypeValidator typeValidator = BasicPolymorphicTypeValidator.builder()
             .allowIfSubTypeIsArray()
             .allowIfBaseType(Object.class)
-            .allowIfSubType("com.yourpackage.domain")  // Allow your domain classes
+            .allowIfSubType("com.reservationinventory.entity")  
+            .allowIfSubType("com.reservationinventory.dto")     // Added: Allow DTOs
             .allowIfSubType("java.util")               // Allow common collections
             .allowIfSubType("java.time")               // Allow time classes
+            .allowIfSubType("java.lang")               // Allow basic Java types
             .build();
         
         redisObjectMapper.activateDefaultTyping(
@@ -75,5 +85,21 @@ public class RedisConfig {
         
         template.afterPropertiesSet();
         return template;
+    }
+    
+    // ✅ ADD THIS METHOD - This is what was missing!
+    @Bean
+    public CacheManager cacheManager(RedisConnectionFactory redisConnectionFactory) {
+        RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
+            .entryTtl(Duration.ofSeconds(600)) // 10 minutes TTL
+            .serializeKeysWith(RedisSerializationContext.SerializationPair
+                .fromSerializer(new StringRedisSerializer()))
+            .serializeValuesWith(RedisSerializationContext.SerializationPair
+                .fromSerializer(new GenericJackson2JsonRedisSerializer(objectMapper)))
+            .disableCachingNullValues(); // Don't cache null values
+        
+        return RedisCacheManager.builder(redisConnectionFactory)
+            .cacheDefaults(config)
+            .build();
     }
 }
