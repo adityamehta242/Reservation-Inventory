@@ -73,44 +73,36 @@ public class ReservationService {
         
         log.info("Creating reservation with idempotency key: {}", idempotencyKey);
         
-        // First, check if we already have a cached response
         Optional<ReservationResponseDTO> existingResponse = idempotencyRedisService.getResponse(idempotencyKey);
         if (existingResponse.isPresent()) {
             log.info("Returning cached response for idempotency key: {}", idempotencyKey);
             return existingResponse.get();
         }
         
-        // Try to acquire lock
         if (!idempotencyRedisService.tryLock(idempotencyKey)) {
             log.info("Lock acquisition failed, waiting for result for idempotency key: {}", idempotencyKey);
             
-            // Wait for the other thread to complete
             Optional<ReservationResponseDTO> waitResult = idempotencyRedisService.waitForResult(idempotencyKey);
             
             if (waitResult.isPresent()) {
                 return waitResult.get();
             } else {
-                // If waiting failed, try to process again (maybe the other thread failed)
                 log.warn("Wait for result failed, attempting to process again for idempotency key: {}", idempotencyKey);
                 return handleFailedWait(customerId, reservationItemRequest, idempotencyKey);
             }
         }
         
         try {
-            // Mark as processing
             idempotencyRedisService.markAsProcessing(idempotencyKey);
             
-            // Double-check after acquiring lock (another thread might have completed while we were waiting)
             Optional<ReservationResponseDTO> doubleCheckResponse = idempotencyRedisService.getResponse(idempotencyKey);
             if (doubleCheckResponse.isPresent()) {
                 log.info("Found response after acquiring lock for idempotency key: {}", idempotencyKey);
                 return doubleCheckResponse.get();
             }
             
-            // Process the reservation
             ReservationResponseDTO response = processReservation(customerId, reservationItemRequest);
             
-            // Store response and release lock atomically
             idempotencyRedisService.storeResponseAndReleaseLock(idempotencyKey, response);
             
             log.info("Successfully created reservation with idempotency key: {}", idempotencyKey);
@@ -119,7 +111,6 @@ public class ReservationService {
         } catch (Exception e) {
             log.error("Error processing reservation with idempotency key: {}", idempotencyKey, e);
             
-            // Ensure cleanup on failure
             idempotencyRedisService.releaseLock(idempotencyKey);
             idempotencyRedisService.removeProcessingMarker(idempotencyKey);
             
@@ -130,18 +121,15 @@ public class ReservationService {
     private ReservationResponseDTO handleFailedWait(UUID customerId, 
             List<ReservationItemRequestDTO> reservationItemRequest, String idempotencyKey) {
         
-        // Try to acquire lock again
         if (idempotencyRedisService.tryLock(idempotencyKey)) {
             try {
                 idempotencyRedisService.markAsProcessing(idempotencyKey);
                 
-                // Check one more time
                 Optional<ReservationResponseDTO> response = idempotencyRedisService.getResponse(idempotencyKey);
                 if (response.isPresent()) {
                     return response.get();
                 }
                 
-                // Process the reservation
                 ReservationResponseDTO result = processReservation(customerId, reservationItemRequest);
                 idempotencyRedisService.storeResponseAndReleaseLock(idempotencyKey, result);
                 return result;
@@ -152,7 +140,6 @@ public class ReservationService {
                 throw e;
             }
         } else {
-            // If we still can't acquire lock, throw an exception
             throw new RuntimeException("Unable to process reservation due to concurrent processing issues");
         }
     }
@@ -235,5 +222,35 @@ public class ReservationService {
             log.warn("SHA-256 not available, using simple concatenation for idempotency key");
             return customerId.toString() + ":" + items.hashCode();
         }
+    }
+    
+    ReservationResponseDTO confirmReservation(UUID reservationId) {
+
+        return null;
+
+    }
+
+    ReservationResponseDTO cancelReservation(UUID reservationId) {
+
+        return null;
+
+    }
+
+    ReservationResponseDTO getReservationById(UUID reservationId) {
+
+        return null;
+
+    }
+
+    List<ReservationResponseDTO> getReservationsByCustomerId(UUID customerId) {
+
+        return null;
+
+    }
+
+    ReservationResponseDTO extendReservation(UUID reservationId, int additionalHours) {
+
+        return null;
+
     }
 }

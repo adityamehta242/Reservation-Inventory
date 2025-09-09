@@ -16,17 +16,18 @@
 package com.reservationinventory.config;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
+import com.fasterxml.jackson.databind.jsontype.PolymorphicTypeValidator;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
-
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
 
@@ -34,22 +35,39 @@ import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
 @EnableCaching
 public class RedisConfig {
     
+    @Autowired
+    private ObjectMapper objectMapper;
+    
     @Bean
     public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory) {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
         
-        // Use Jackson2JsonRedisSerializer for JSON serialization
         Jackson2JsonRedisSerializer<Object> jackson2JsonRedisSerializer = 
             new Jackson2JsonRedisSerializer<>(Object.class);
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.ANY);
-        objectMapper.enableDefaultTyping(ObjectMapper.DefaultTyping.NON_FINAL);
-        objectMapper.registerModule(new JavaTimeModule());
-        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        jackson2JsonRedisSerializer.setObjectMapper(objectMapper);
         
-        // Set serializers
+        ObjectMapper redisObjectMapper = objectMapper.copy();
+        redisObjectMapper.setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.ANY);
+        
+        // ✅ Custom type validator for specific packages/classes
+        PolymorphicTypeValidator typeValidator = BasicPolymorphicTypeValidator.builder()
+            .allowIfSubTypeIsArray()
+            .allowIfBaseType(Object.class)
+            .allowIfSubType("com.yourpackage.domain")  // Allow your domain classes
+            .allowIfSubType("java.util")               // Allow common collections
+            .allowIfSubType("java.time")               // Allow time classes
+            .build();
+        
+        redisObjectMapper.activateDefaultTyping(
+            typeValidator,
+            ObjectMapper.DefaultTyping.NON_FINAL,
+            JsonTypeInfo.As.PROPERTY
+        );
+        
+        redisObjectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        
+        jackson2JsonRedisSerializer.setObjectMapper(redisObjectMapper);
+        
         template.setKeySerializer(new StringRedisSerializer());
         template.setValueSerializer(jackson2JsonRedisSerializer);
         template.setHashKeySerializer(new StringRedisSerializer());
@@ -57,14 +75,5 @@ public class RedisConfig {
         
         template.afterPropertiesSet();
         return template;
-    }
-    
-    @Bean
-    public ObjectMapper objectMapper() {
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.registerModule(new JavaTimeModule());
-        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        return objectMapper;
     }
 }
