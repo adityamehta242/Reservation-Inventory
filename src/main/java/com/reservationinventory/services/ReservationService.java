@@ -23,6 +23,8 @@ import com.reservationinventory.entity.Product;
 import com.reservationinventory.entity.Reservation;
 import com.reservationinventory.entity.ReservationItem;
 import com.reservationinventory.entity.ReservationStatus;
+import com.reservationinventory.exceptions.ReservationCancelledException;
+import com.reservationinventory.exceptions.ReservationExpiredException;
 import com.reservationinventory.exceptions.ResourceNotFoundException;
 import com.reservationinventory.mapper.ReservationMapper;
 import com.reservationinventory.repository.CustomerRepository;
@@ -225,26 +227,51 @@ public class ReservationService {
     }
 
     public ReservationResponseDTO confirmReservation(UUID reservationId) {
+        log.info("Confirming reservation with ID: {}", reservationId);
 
         Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> {
-                    log.info("Reservation id not found {}", reservationId);
-                    return new ResourceNotFoundException("Reservation id not found " + reservationId);
+                    log.error("Reservation not found with ID: {}", reservationId);
+                    return new ResourceNotFoundException("Reservation not found with ID: " + reservationId);
                 });
-        
+
+        if (reservation.getStatus() == ReservationStatus.CONFIRMED) {
+            log.info("Reservation {} is already confirmed", reservationId);
+            return reservationMapper.toResponseDTO(reservation);
+        }
+
+        if (reservation.getExpiresAt().isBefore(OffsetDateTime.now())) {
+            log.warn("Reservation {} has expired", reservationId);
+            reservation.setStatus(ReservationStatus.EXPIRED);
+            reservationRepository.save(reservation);
+            throw new ReservationExpiredException("Reservation has expired and cannot be confirmed");
+        }
+
+        if (reservation.getStatus() == ReservationStatus.CANCELLED) {
+            log.error("Reservation {} is in CANCELLED status.",
+                    reservationId);
+            throw new ReservationCancelledException("Reservation" + reservationId + "is in CANCELLED status.");
+        }
+
+        try {
+            Reservation confirmReservation = processConfirmReservation(reservation);
+        } catch (Exception e) {
+        }
         return null;
 
     }
-    
-    private Reservation processConfirmReservation(Reservation reservation)
-    {
-        reservation.setConfirmedAt(OffsetDateTime.now());
-        reservation.setStatus(ReservationStatus.CONFIRMED);
+
+    private Reservation processConfirmReservation(Reservation reservation) {
+        log.debug("Processing confirmation for reservation ID: {}", reservation.getId());
         
-        for(reservation.getReservationItems() : ReservationItem reservationItem)
+        List<String> failSku = new ArrayList<>();
+        
+        for(ReservationItem reservationItem : reservation.getReservationItems())
         {
-            productService.
+            
         }
+        
+        return null;
     }
 
     ReservationResponseDTO cancelReservation(UUID reservationId) {

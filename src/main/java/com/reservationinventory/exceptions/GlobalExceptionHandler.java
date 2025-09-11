@@ -51,4 +51,11 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(HttpStatus.BAD_REQUEST.value(), ex.getMessage());
         return new ResponseEntity<ErrorResponse>(error, HttpStatus.BAD_REQUEST);
     }
+    
+    @ExceptionHandler(ReservationCancelledException.class)
+    public ResponseEntity<ErrorResponse> handleReservationCancelledException(ReservationCancelledException ex)
+    {
+        ErrorResponse error = new ErrorResponse(HttpStatus.CONFLICT.value(), ex.getMessage());
+        return new ResponseEntity<ErrorResponse>(error , HttpStatus.CONFLICT);
+    }
 }
