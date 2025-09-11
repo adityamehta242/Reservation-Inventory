@@ -4,14 +4,18 @@ import com.reservationinventory.dto.AvailabilityResponse;
 import com.reservationinventory.dto.InventoryUpdateRequestDTO;
 import com.reservationinventory.entity.Product;
 import com.reservationinventory.repository.ProductRepository;
+import com.reservationinventory.services.redis.ProductRedisService;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.transaction.annotation.Transactional;
 
+@Transactional
+@Slf4j
 @Service
 public class ProductService {
 
@@ -121,5 +125,46 @@ public class ProductService {
         productRedisService.cacheProduct(sku, product);
         return product;
     }
+
+    public Product confirmReservation(String sku, int quantity) {
+        if (!productRedisService.tryLock(sku)) {
+
+            if (productRedisService.waitForInventoryOperation(sku)) {
+                if (!productRedisService.tryLock(sku)) {
+                    throw new RuntimeException("Unable to acquire lock for inventory confirmation of SKU: " + sku);
+                }
+            } else {
+                throw new RuntimeException("Timeout waiting for inventory operation for SKU: " + sku);
+            }
+        }
+
+        try {
+            Product product = productRepository.findBySku(sku)
+                    .orElseThrow(() -> new RuntimeException("Product not found with SKU: " + sku));
+            
+            if (product.getReserved() < quantity) {
+                throw new RuntimeException("Not enough reserved inventory for product SKU: " + sku + 
+                        ". Reserved: " + product.getReserved() + ", Requested: " + quantity);
+            }
+            
+            int newReserved = product.getReserved() - quantity;
+            product.setReserved(newReserved);
+            
+            Product savedProduct = productRepository.save(product);
+            
+            productRedisService.updateInventoryAndCache(sku, savedProduct);
+            
+            log.info("Successfully confirmed reservation of {} units for SKU: {}", quantity, sku);
+            return savedProduct;
+            
+        } catch (Exception e) {
+            log.error("Error confirming reservation for SKU: {}", sku, e);
+            productRedisService.releaseLock(sku);
+            productRedisService.removeProcessingMarker(sku);
+            throw e;
+        }        
+    }
+    
+    
 
 }

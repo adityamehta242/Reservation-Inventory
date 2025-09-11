@@ -263,15 +263,32 @@ public class ReservationService {
 
     private Reservation processConfirmReservation(Reservation reservation) {
         log.debug("Processing confirmation for reservation ID: {}", reservation.getId());
-        
-        List<String> failSku = new ArrayList<>();
-        
-        for(ReservationItem reservationItem : reservation.getReservationItems())
-        {
-            
+
+        List<String> failedSkus = new ArrayList<>();
+
+        for (ReservationItem reservationItem : reservation.getReservationItems()) {
+            try {
+                productService.confirmReservation(reservationItem.getSku(), reservationItem.getQuantity());
+                log.debug("Confirmed {} units of SKU: {} for reservation: {}",
+                        reservationItem.getQuantity(), reservationItem.getSku(), reservation.getId());
+            } catch (Exception e) {
+                log.error("Error confirming reservation for SKU: {} in reservation: {}",
+                        reservationItem.getSku(), reservation.getId(), e);
+                failedSkus.add(reservationItem.getSku());
+            }
         }
-        
-        return null;
+
+        if (!failedSkus.isEmpty()) {
+            log.error("Failed to confirm reservation for SKUs: {} in reservation: {}",
+                    failedSkus, reservation.getId());
+            throw new RuntimeException("Failed to confirm reservation for SKUs: " + failedSkus);
+        }
+
+        reservation.setConfirmedAt(OffsetDateTime.now());
+        reservation.setStatus(ReservationStatus.CONFIRMED);
+
+        return reservationRepository.save(reservation);
+
     }
 
     ReservationResponseDTO cancelReservation(UUID reservationId) {

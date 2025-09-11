@@ -19,6 +19,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.reservationinventory.entity.Product;
 import java.time.Duration;
 import java.util.Optional;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -53,9 +56,9 @@ public class ProductRedisService {
 
     public boolean tryLock(String sku) {
         try {
-            String lockkey = LOCK_PREFIX + sku;
+            String lockKey = LOCK_PREFIX + sku;
             Boolean success = redisTemplate.opsForValue()
-                    .setIfAbsent(lockkey, "inventory-update", LOCK_TTL);
+                    .setIfAbsent(lockKey, "inventory-update", LOCK_TTL);
 
             if (Boolean.TRUE.equals(success)) {
                 log.debug("Successfully acquired inventory lock for SKU: {}", sku);
@@ -126,29 +129,29 @@ public class ProductRedisService {
         try {
             String productKey = PRODUCT_PREFIX + sku;
             Object cached = redisTemplate.opsForValue().get(productKey);
-            
+
             if (cached == null) {
                 log.debug("No cached product found for SKU: {}", sku);
                 return Optional.empty();
             }
-            
+
             if (cached instanceof Product) {
                 log.debug("Found cached product for SKU: {}", sku);
                 return Optional.of((Product) cached);
             }
-            
+
             // Try to deserialize
             Product product = objectMapper.convertValue(cached, Product.class);
             log.debug("Deserialized cached product for SKU: {}", sku);
             return Optional.of(product);
-            
+
         } catch (Exception e) {
             log.error("Error retrieving cached product for SKU: {}", sku, e);
             return Optional.empty();
         }
     }
-    
-        public void evictProduct(String sku) {
+
+    public void evictProduct(String sku) {
         try {
             String productKey = PRODUCT_PREFIX + sku;
             redisTemplate.delete(productKey);
@@ -157,6 +160,35 @@ public class ProductRedisService {
             log.error("Error evicting cached product for SKU: {}", sku, e);
         }
     }
+
+    public void cacheInventroy(String sku, int available, int reserved, int total) {
+        try {
+            String inventoryKey = INVENTORY_PREFIX + sku;
+            InventoryInfo inventory = new InventoryInfo(available, reserved, total, System.currentTimeMillis());
+            redisTemplate.opsForValue().set(inventoryKey, inventory, Duration.ofMinutes(5)); // Shorter TTL for inventory
+            log.debug("Cached inventory for SKU: {}", sku);
+        } catch (Exception e) {
+            log.error("Error caching inventory for SKU: {}", sku, e);
+        }
+    }
     
+    public boolean waitForInventoryOperation(String sku)
+    {
+        return true;
+    }
+    
+    public void updateInventoryAndCache(String sku , Product product)
+    {}
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class InventoryInfo {
+
+        private int available;
+        private int reserved;
+        private int total;
+        private long timestamp;
+    }
 
 }
