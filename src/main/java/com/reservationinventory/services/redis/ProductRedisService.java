@@ -20,10 +20,14 @@ import com.reservationinventory.entity.Product;
 import java.time.Duration;
 import java.util.Optional;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.stereotype.Service;
 
 /**
@@ -171,16 +175,98 @@ public class ProductRedisService {
             log.error("Error caching inventory for SKU: {}", sku, e);
         }
     }
-    
-    public boolean waitForInventoryOperation(String sku)
-    {
-        return true;
+
+    public Optional<InventoryInfo> getCachedInventory(String sku) {
+        try {
+            String inventoryKey = INVENTORY_PREFIX + sku;
+            Object cached = redisTemplate.opsForValue().get(inventoryKey);
+
+            if (cached == null) {
+                return Optional.empty();
+            }
+
+            if (cached instanceof InventoryInfo) {
+                return Optional.of((InventoryInfo) cached);
+            }
+
+            InventoryInfo inventory = objectMapper.convertValue(cached, InventoryInfo.class);
+            return Optional.of(inventory);
+
+        } catch (Exception e) {
+            log.error("Error retrieving cached inventory for SKU: {}", sku, e);
+            return Optional.empty();
+        }
     }
-    
-    public void updateInventoryAndCache(String sku , Product product)
-    {}
+
+    public void updateInventoryAndCache(String sku, Product product) {
+        try {
+            redisTemplate.execute(new SessionCallback<Object>() {
+                @Override
+                public Object execute(RedisOperations operations) throws DataAccessException {
+                    String productKey = PRODUCT_PREFIX + sku;
+                    String inventoryKey = INVENTORY_PREFIX + sku;
+                    String lockKey = LOCK_PREFIX + sku;
+                    String processingKey = PROCESSING_PREFIX + sku;
+
+                    operations.multi();
+
+                    // Update product cache
+                    operations.opsForValue().set(productKey, product, PRODUCT_TTL);
+
+                    // Update inventory cache
+                    InventoryInfo inventory = new InventoryInfo(
+                            product.getAvailable(),
+                            product.getReserved(),
+                            product.getTotal(),
+                            System.currentTimeMillis()
+                    );
+                    operations.opsForValue().set(inventoryKey, inventory, Duration.ofMinutes(5));
+
+                    // Release lock and processing marker
+                    operations.delete(lockKey);
+                    operations.delete(processingKey);
+
+                    return operations.exec();
+                }
+            });
+
+            log.debug("Updated inventory cache and released lock for SKU: {}", sku);
+
+        } catch (Exception e) {
+            log.error("Error updating inventory cache for SKU: {}", sku, e);
+            // Ensure cleanup
+            releaseLock(sku);
+            removeProcessingMarker(sku);
+            throw new RuntimeException("Failed to update inventory cache", e);
+        }
+    }
+
+    public boolean waitForInventoryOperation(String sku) {
+        log.debug("Waiting for inventory operation to complete for SKU: {}", sku);
+
+        for (int attempt = 0; attempt < MAX_WAIT_ATTEMPTS; attempt++) {
+            try {
+                if (!isProcessing(sku)) {
+                    log.debug("Inventory operation completed for SKU: {}", sku);
+                    return true;
+                }
+
+                Thread.sleep(WAIT_INTERVAL_MS);
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("Interrupted while waiting for inventory operation for SKU: {}", sku);
+                return false;
+            } catch (Exception e) {
+                log.error("Error while waiting for inventory operation for SKU: {}", sku, e);
+            }
+        }
+        log.warn("Timeout waiting for inventory operation for SKU: {}", sku);
+        return false;
+    }
 
     @Data
+    @Builder
     @NoArgsConstructor
     @AllArgsConstructor
     public static class InventoryInfo {
@@ -189,6 +275,19 @@ public class ProductRedisService {
         private int reserved;
         private int total;
         private long timestamp;
+
+        public static InventoryInfo fromProduct(Product product) {
+            return InventoryInfo.builder()
+                    .available(product.getAvailable())
+                    .reserved(product.getReserved())
+                    .total(product.getTotal())
+                    .timestamp(System.currentTimeMillis())
+                    .build();
+        }
+
+        public boolean isStale(Duration maxAge) {
+            return System.currentTimeMillis() - timestamp > maxAge.toMillis();
+        }
     }
 
 }
