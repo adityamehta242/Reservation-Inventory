@@ -240,17 +240,17 @@ public class ReservationService {
             return reservationMapper.toResponseDTO(reservation);
         }
 
+        if (reservation.getStatus() == ReservationStatus.CANCELLED) {
+            log.error("Reservation {} is in CANCELLED status", reservationId);
+            throw new ReservationCancelledException(
+                    String.format("Reservation %s is in CANCELLED status.", reservationId));
+        }
+
         if (reservation.getExpiresAt().isBefore(OffsetDateTime.now())) {
             log.warn("Reservation {} has expired", reservationId);
             reservation.setStatus(ReservationStatus.EXPIRED);
             reservationRepository.save(reservation);
-            throw new ReservationExpiredException("Reservation has expired and cannot be confirmed");
-        }
-
-        if (reservation.getStatus() == ReservationStatus.CANCELLED) {
-            log.error("Reservation {} is in CANCELLED status.",
-                    reservationId);
-            throw new ReservationCancelledException("Reservation" + reservationId + "is in CANCELLED status.");
+            throw new ReservationExpiredException("Reservation has expired and cannot be confirmed.");
         }
 
         try {

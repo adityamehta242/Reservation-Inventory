@@ -18,6 +18,8 @@ package com.reservationinventory.services.redis;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.reservationinventory.entity.Product;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.Map;
 import java.util.Optional;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -165,7 +167,7 @@ public class ProductRedisService {
         }
     }
 
-    public void cacheInventroy(String sku, int available, int reserved, int total) {
+    public void cacheInventory(String sku, int available, int reserved, int total) {
         try {
             String inventoryKey = INVENTORY_PREFIX + sku;
             InventoryInfo inventory = new InventoryInfo(available, reserved, total, System.currentTimeMillis());
@@ -263,6 +265,40 @@ public class ProductRedisService {
         }
         log.warn("Timeout waiting for inventory operation for SKU: {}", sku);
         return false;
+    }
+
+    public void batchCacheProducts(Map<String, Product> products) {
+        try {
+            redisTemplate.executePipelined(new SessionCallback<Object>() {
+                @Override
+                public Object execute(RedisOperations operations) throws DataAccessException {
+                    products.forEach((sku, product) -> {
+                        String productKey = PRODUCT_PREFIX + sku;
+                        operations.opsForValue().set(productKey, product, PRODUCT_TTL);
+                    });
+                    return null;
+                }
+            });
+
+            log.debug("Batch cached {} products", products.size());
+
+        } catch (Exception e) {
+            log.error("Error batch caching products", e);
+        }
+    }
+
+    public void cleanup(String sku) {
+        try {
+            String productKey = PRODUCT_PREFIX + sku;
+            String inventoryKey = INVENTORY_PREFIX + sku;
+            String lockKey = LOCK_PREFIX + sku;
+            String processingKey = PROCESSING_PREFIX + sku;
+
+            redisTemplate.delete(Arrays.asList(productKey, inventoryKey, lockKey, processingKey));
+            log.debug("Cleaned up all keys for SKU: {}", sku);
+        } catch (Exception e) {
+            log.error("Error cleaning up keys for SKU: {}", sku, e);
+        }
     }
 
     @Data
