@@ -18,9 +18,12 @@ package com.reservationinventory.controllers;
 import com.reservationinventory.dto.CreateReservationRequestDTO;
 import com.reservationinventory.dto.ReservationResponseDTO;
 import com.reservationinventory.services.ReservationService;
+import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -46,16 +49,18 @@ public class ReservationControllers {
         return ResponseEntity.ok(reservation);
     }
     
-//    @PutMapping("/{id}/confirm")
-//    public ResponseEntity<ReservationResponseDTO> confirmReservation(@PathVariable UUID id) {
-//        // Business logic: Validate → Confirm → Update Inventory → Return Response
-//    }
-//    
-//    @PutMapping("/{id}/cancel")
-//    public ResponseEntity<ReservationResponseDTO> cancelReservation(@PathVariable UUID id) {
-//        // Business logic: Validate → Cancel → Release Inventory → Return Response
-//    }
-//    
+    @PutMapping("/{id}/confirm")
+    public ResponseEntity<ReservationResponseDTO> confirmReservation(@PathVariable UUID id) {
+        ReservationResponseDTO reservationResponseDTO = reservationService.confirmReservation(id);
+        return ResponseEntity.ok(reservationResponseDTO);
+    }
+    
+    @PutMapping("/{id}/cancel")
+    public ResponseEntity<ReservationResponseDTO> cancelReservation(@PathVariable UUID id) {
+        ReservationResponseDTO reservationResponseDTO = reservationService.cancelReservation(id);
+        return ResponseEntity.ok(reservationResponseDTO);
+    }
+    
 //    @GetMapping("/{id}")
 //    public ResponseEntity<ReservationResponseDTO> getReservation(@PathVariable UUID id) {
 //        // Business logic: Find → Validate Existence → Return Response
