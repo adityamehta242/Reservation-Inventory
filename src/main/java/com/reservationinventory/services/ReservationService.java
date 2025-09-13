@@ -165,7 +165,6 @@ public class ReservationService {
                     return new ResourceNotFoundException("Reservation not found with ID: " + reservationId);
                 });
 
-        // Check if reservation can be cancelled
         if (reservation.getStatus() == ReservationStatus.CONFIRMED) {
             throw new RuntimeException("Cannot cancel confirmed reservation");
         }
@@ -176,7 +175,6 @@ public class ReservationService {
         }
 
         try {
-            // Release all reserved inventory
             for (ReservationItem item : reservation.getReservationItems()) {
                 try {
                     productService.releaseReservation(item.getSku(), item.getQuantity());
@@ -185,11 +183,9 @@ public class ReservationService {
                 } catch (Exception e) {
                     log.error("Error releasing reservation for SKU: {} in reservation: {}", 
                             item.getSku(), reservationId, e);
-                    // Continue with other items even if one fails
                 }
             }
 
-            // Update reservation status
             reservation.setStatus(ReservationStatus.CANCELLED);
             reservation.setCancelledAt(OffsetDateTime.now());
             Reservation savedReservation = reservationRepository.save(reservation);
@@ -269,11 +265,9 @@ public class ReservationService {
             }
         }
 
-        // If any SKU failed to reserve, rollback all reservations
         if (!failedSkus.isEmpty()) {
             log.error("Failed to reserve inventory for SKUs: {}", failedSkus);
             
-            // Release any successfully reserved items
             for (ReservationItem item : reservationItems) {
                 try {
                     productService.releaseReservation(item.getSku(), item.getQuantity());
@@ -297,7 +291,6 @@ public class ReservationService {
 
         List<String> failedSkus = new ArrayList<>();
 
-        // Confirm all reservation items (move from reserved to sold)
         for (ReservationItem reservationItem : reservation.getReservationItems()) {
             try {
                 productService.confirmReservation(reservationItem.getSku(), reservationItem.getQuantity());
@@ -310,14 +303,12 @@ public class ReservationService {
             }
         }
 
-        // If any confirmations failed, this is a critical issue
         if (!failedSkus.isEmpty()) {
             log.error("Failed to confirm reservation for SKUs: {} in reservation: {}", 
                     failedSkus, reservation.getId());
             throw new RuntimeException("Failed to confirm reservation for SKUs: " + failedSkus);
         }
 
-        // Update reservation status
         reservation.setConfirmedAt(OffsetDateTime.now());
         reservation.setStatus(ReservationStatus.CONFIRMED);
         
