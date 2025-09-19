@@ -27,10 +27,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class SchedulerService {
     
-    @Transactional
-    @Scheduled(fixedRate = 1800000)
-    public void cleanupExpiredKeys()
-    {
-        System.out.println("Clear Idempotency. . . ");
-    }
+//    @Transactional
+//    @Scheduled(fixedRate = 1800000)
+//    public void cleanupExpiredKeys()
+//    {
+//        System.out.println("Clear Idempotency. . . ");
+//    }
 }

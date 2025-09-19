@@ -36,6 +36,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -44,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional
 @Slf4j
+@AllArgsConstructor
 public class ReservationService {
 
     private final CustomerRepository customerRepository;
@@ -52,18 +54,18 @@ public class ReservationService {
     private final ReservationMapper reservationMapper;
     private final IdempotencyRedisService idempotencyRedisService;
 
-    public ReservationService(
-            CustomerRepository customerRepository,
-            ReservationRepository reservationRepository,
-            ProductService productService,
-            ReservationMapper reservationMapper,
-            IdempotencyRedisService idempotencyRedisService) {
-        this.customerRepository = customerRepository;
-        this.reservationRepository = reservationRepository;
-        this.productService = productService;
-        this.reservationMapper = reservationMapper;
-        this.idempotencyRedisService = idempotencyRedisService;
-    }
+//    public ReservationService(
+//            CustomerRepository customerRepository,
+//            ReservationRepository reservationRepository,
+//            ProductService productService,
+//            ReservationMapper reservationMapper,
+//            IdempotencyRedisService idempotencyRedisService) {
+//        this.customerRepository = customerRepository;
+//        this.reservationRepository = reservationRepository;
+//        this.productService = productService;
+//        this.reservationMapper = reservationMapper;
+//        this.idempotencyRedisService = idempotencyRedisService;
+//    }
 
     public ReservationResponseDTO createReservation(UUID customerId, List<ReservationItemRequestDTO> reservationItemRequest) {
         String idempotencyKey = generateIdempotencyKey(customerId, reservationItemRequest);

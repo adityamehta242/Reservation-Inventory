@@ -13,7 +13,7 @@
 
     <groupId>com.ReservationInventory</groupId>
     <artifactId>Reservation-Inventory</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.0</version>
     <name>Reservation-Inventory</name>
     <description>Reservation-Inventory backend system</description>
     <url>http://your.project.url/</url>
